@@ -1,0 +1,3 @@
+[submodule "news-aggregator-skill"]
+	path = news-aggregator-skill
+	url = git@github.com:cclank/news-aggregator-skill.git
