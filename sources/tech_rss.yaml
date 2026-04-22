@@ -1,0 +1,103 @@
+# 科技 RSS 订阅源配置
+# 格式：name, url, lang, category, enabled
+
+sources:
+  # === English Tech (Primary) ===
+  - name: TechCrunch
+    url: https://techcrunch.com/feed/
+    lang: en
+    category: tech_startup
+    enabled: true
+
+  - name: The Verge
+    url: https://www.theverge.com/rss/index.xml
+    lang: en
+    category: consumer_tech
+    enabled: true
+
+  - name: Ars Technica
+    url: https://feeds.arstechnica.com/arstechnica/index
+    lang: en
+    category: deep_tech
+    enabled: true
+
+  - name: Wired
+    url: https://www.wired.com/feed/rss
+    lang: en
+    category: tech_culture
+    enabled: true
+
+  - name: MIT Tech Review
+    url: https://www.technologyreview.com/feed/
+    lang: en
+    category: deep_tech_research
+    enabled: true
+
+  - name: VentureBeat AI
+    url: https://venturebeat.com/category/ai/feed/
+    lang: en
+    category: ai
+    enabled: true
+
+  - name: Hacker News
+    url: https://news.ycombinator.com/rss
+    lang: en
+    category: community
+    enabled: true
+
+  - name: The Information
+    url: https://www.theinformation.com/feed
+    lang: en
+    category: tech_business
+    enabled: false  # may require login
+
+  # === Chinese Tech ===
+  - name: 36氪
+    url: https://36kr.com/feed
+    lang: zh
+    category: tech_startup
+    enabled: true
+
+  - name: 爱范儿
+    url: https://www.ifanr.com/feed
+    lang: zh
+    category: consumer_tech
+    enabled: true
+
+  - name: 极客公园
+    url: http://www.geekpark.net/rss
+    lang: zh
+    category: consumer_tech
+    enabled: true
+
+  - name: 少数派
+    url: https://sspai.com/feed
+    lang: zh
+    category: digital_life
+    enabled: true
+
+  - name: 钛媒体
+    url: https://www.tmtpost.com/rss
+    lang: zh
+    category: tech_business
+    enabled: true
+
+  # === GitHub Trending ===
+  - name: GitHub Trending
+    url: https://github.com/trending.rss
+    lang: en
+    category: open_source
+    enabled: true
+
+  # === AI Specific ===
+  - name: AI Reddit
+    url: https://www.reddit.com/r/artificial/.rss
+    lang: en
+    category: ai
+    enabled: false  # reddit rss needs login
+
+report_settings:
+  max_articles_per_source: 5
+  max_total_articles: 30
+  summaries_per_article: 3  # number of bullet points
+  language: zh  # report language
