@@ -1,12 +1,7 @@
 #!/usr/bin/env python3.11
 """
-daily_digest.py - 每日科技资讯报告生成 + 推送到飞书
-Run as: python3 scripts/daily_digest.py
-
-整合了：
-1. fetch_rss.py - 抓取配置的信源
-2. daily_report.py - 生成中文 Markdown 报告
-3. 发送到飞书群
+daily_digest.py - 每日科技资讯报告生成 + 直接推送到飞书（不经过 LLM）
+Run as: python3.11 scripts/daily_digest.py
 """
 import sys
 import os
@@ -14,8 +9,8 @@ import json
 import yaml
 import time
 import feedparser
-import textwrap
-from datetime import datetime, timezone
+import requests
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
 # ---------------------------------------------------------------------------
@@ -29,13 +24,19 @@ TIMEOUT = 15
 MAX_PER_SOURCE = 5
 LIMIT = 20  # 总文章数
 
+# 飞书配置 — 直接发送，不经过 LLM
+FEISHU_APP_ID = "cli_a9257489d7f95cb0"
+FEISHU_APP_SECRET = "Z0yMxON3tFvMs3hrPvnsjeUQCc7wCZwW"
+FEISHU_CHAT_ID = "oc_d170dda09264716d786cd28cc48e5f78"  # 3号资讯群
+
+CST = timezone(timedelta(hours=8))
+
 
 # ---------------------------------------------------------------------------
 # RSS Fetcher
 # ---------------------------------------------------------------------------
 def fetch_feed(source: dict) -> list:
-    from urllib.request import Request, urlopen
-    import ssl
+    import urllib.request, ssl, re
 
     url = source["url"]
     name = source["name"]
@@ -44,16 +45,10 @@ def fetch_feed(source: dict) -> list:
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Accept": "application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
     }
-    req = Request(url, headers=headers)
-    ctx = ssl.create_default_context()
-    try:
-        ctx = ssl._create_unverified_context()
-    except AttributeError:
-        pass
-    articles = []
+    req = urllib.request.Request(url, headers=headers)
+    ctx = ssl._create_unverified_context()
 
     try:
-        import urllib.request
         proxy_handler = urllib.request.ProxyHandler({"http": PROXY, "https": PROXY})
         opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=ctx))
         resp = opener.open(req, timeout=TIMEOUT)
@@ -63,6 +58,7 @@ def fetch_feed(source: dict) -> list:
         return []
 
     d = feedparser.parse(content)
+    articles = []
     for entry in d.entries[:MAX_PER_SOURCE]:
         published = ""
         if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -73,8 +69,6 @@ def fetch_feed(source: dict) -> list:
                 pass
 
         summary = entry.get("summary", "") or entry.get("description", "") or ""
-        # Strip HTML tags from summary
-        import re
         summary = re.sub(r'<[^>]+>', '', summary).strip()[:200]
 
         articles.append({
@@ -109,69 +103,87 @@ def fetch_all() -> list:
 # Report Generator
 # ---------------------------------------------------------------------------
 CAT_EMOJI = {
-    "ai": "🤖",
-    "tech_startup": "🚀",
-    "consumer_tech": "📱",
-    "deep_tech": "🔬",
-    "deep_tech_research": "🎓",
-    "community": "👨‍💻",
-    "tech_business": "💼",
-    "open_source": "🌟",
-    "digital_life": "✨",
+    "ai": "🤖", "tech_startup": "🚀", "consumer_tech": "📱",
+    "deep_tech": "🔬", "deep_tech_research": "🎓", "community": "👨‍💻",
+    "tech_business": "💼", "open_source": "🌟", "digital_life": "✨",
     "tech_culture": "🌐",
 }
 CAT_NAME = {
-    "ai": "AI",
-    "tech_startup": "科技创业",
-    "consumer_tech": "消费科技",
-    "deep_tech": "深度技术",
-    "deep_tech_research": "学术研究",
-    "community": "社区",
-    "tech_business": "科技商业",
-    "open_source": "开源",
-    "digital_life": "数字生活",
+    "ai": "AI", "tech_startup": "科技创业", "consumer_tech": "消费科技",
+    "deep_tech": "深度技术", "deep_tech_research": "学术研究", "community": "社区",
+    "tech_business": "科技商业", "open_source": "开源", "digital_life": "数字生活",
     "tech_culture": "科技文化",
 }
 
-def make_md(articles: list) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+def make_report(articles: list) -> str:
+    now_cst = datetime.now(CST).strftime("%Y-%m-%d %H:%M CST")
     lines = [
-        f"# 📰 每日科技资讯 {now}",
-        f"共 **{len(articles)}** 条 | 信源: RSS",
+        f"📰 每日科技资讯 · {datetime.now(CST).strftime('%Y-%m-%d')}",
+        f"共 {len(articles)} 条 | 自动抓取自 RSS",
         "",
     ]
 
-    # Category stats
     cats = defaultdict(int)
     for a in articles:
         cats[a.get("category", "other")] += 1
-    cat_parts = []
-    for cat, cnt in sorted(cats.items(), key=lambda x: -x[1])[:6]:
-        cat_parts.append(f"{CAT_EMOJI.get(cat,'📰')}{CAT_NAME.get(cat,cat)}:{cnt}")
-    lines.append(" | ".join(cat_parts))
-    lines.append("")
-    lines.append("---")
+    cat_parts = [f"{CAT_EMOJI.get(c,'📰')}{CAT_NAME.get(c,c)}:{n}"
+                 for c, n in sorted(cats.items(), key=lambda x: -x[1])[:5]]
+    lines.append("  ".join(cat_parts))
     lines.append("")
 
     for i, a in enumerate(articles, 1):
-        emoji = CAT_EMOJI.get(a.get("category", ""), "📰")
         title = a["title"]
         url = a["url"]
         source = a["source"]
-        lang = a["lang"]
+        lang = "🇨🇳" if a["lang"] == "zh" else "🌐"
         pub = a.get("published", "")[:10]
         summary = a.get("summary", "")
 
-        lines.append(f"**{i}. {title}**")
-        lines.append(f"📰 {source} | {'🇨🇳中文' if lang=='zh' else '🌐EN'} | 📅 {pub}")
+        lines.append(f"{i}. {title}")
+        lines.append(f"   {lang} {source} · {pub}")
         if summary:
-            lines.append(f"{summary[:120]}{'...' if len(summary)>120 else ''}")
-        lines.append(f"🔗 {url}")
+            lines.append(f"   {summary[:100]}{'...' if len(summary) > 100 else ''}")
+        lines.append(f"   {url}")
         lines.append("")
 
-    lines.append("---")
-    lines.append("*🤖 AI 自动抓取生成 | wechat-crawler*")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Feishu Sender
+# ---------------------------------------------------------------------------
+def get_feishu_token() -> str:
+    r = requests.post(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
+        timeout=10,
+    )
+    return r.json().get("tenant_access_token", "")
+
+
+def send_to_feishu(text: str) -> bool:
+    token = get_feishu_token()
+    if not token:
+        print("[ERROR] 获取飞书 token 失败", file=sys.stderr)
+        return False
+
+    r = requests.post(
+        "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={
+            "receive_id": FEISHU_CHAT_ID,
+            "msg_type": "text",
+            "content": json.dumps({"text": text}),
+        },
+        timeout=15,
+    )
+    result = r.json()
+    if result.get("code") == 0:
+        print("[INFO] 飞书发送成功", file=sys.stderr)
+        return True
+    else:
+        print(f"[ERROR] 飞书发送失败: {result}", file=sys.stderr)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -182,18 +194,22 @@ def main():
     articles = fetch_all()
     print(f"[INFO] Got {len(articles)} articles", file=sys.stderr)
 
-    report_md = make_md(articles)
+    if not articles:
+        print("[WARN] 没有抓到任何文章，跳过发送", file=sys.stderr)
+        return
 
-    # Save
+    report = make_report(articles)
+
+    # 保存本地存档
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(CST).strftime("%Y-%m-%d")
     out_path = os.path.join(REPORTS_DIR, f"daily_{today}.md")
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(report_md)
+        f.write(report)
     print(f"[INFO] Saved: {out_path}", file=sys.stderr)
 
-    # Output for cron → will be sent to Feishu
-    print(report_md)
+    # 直接发飞书，不经过 LLM
+    send_to_feishu(report)
 
 
 if __name__ == "__main__":
